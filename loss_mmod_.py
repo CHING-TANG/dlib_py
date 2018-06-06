@@ -145,3 +145,59 @@ class ProposalLayer(caffe.Layer):
     def reshape(self, bottom, top):
         """Reshaping happens during the call to forward."""
         pass
+
+
+import rectangle
+class intermediate_detection(object):
+    def __init__(self, rect, detection_confidence, tensor_offset, tensor_channel):
+        rect;   # rectangle
+        detection_confidence = 0;   # double
+        tensor_offset = 0;    #size_t
+        tensor_channel = 0;   # long
+
+
+def to_label():
+    pass
+
+
+def compute_loss_value_and_gradient():
+    # const tensor& input_tensor,
+    # const_label_iterator truth, 
+    # SUBNET& sub
+
+
+    det_thresh_speed_adjust = 0  # dobule
+
+    # scale = 1.0/output_tensor.size();   # dobule
+    loss = 0;   # dobule
+
+
+
+
+
+def tensor_to_dets():
+    # scan the final layer and output the positive scoring locations
+
+    # const tensor& input_tensor,
+    # const tensor& output_tensor,
+    # i     # long
+    # out_data = output_tensor.host() + output_tensor.k()*output_tensor.nr()*output_tensor.nc()*i;
+    # adjust_threshold = 
+
+    for k in range(output_tensor.k()):
+        for r in range(output_tensor.nr()):
+            for c in range(output_tensor.nc()):
+            
+                score = out_data[(k*output_tensor.nr() + r)*output_tensor.nc() + c];
+                if (score > adjust_threshold):
+                    dpoint p = output_tensor_to_input_tensor(net, point(c,r));
+                    drectangle rect = centered_drect(p, options.detector_windows[k].width, options.detector_windows[k].height);
+                    rect = input_layer(net).tensor_space_to_image_space(input_tensor,rect);
+
+                    dets_accum.push_back(intermediate_detection(rect, score, (k*output_tensor.nr() + r)*output_tensor.nc() + c, k));
+    
+    # std::sort(dets_accum.rbegin(), dets_accum.rend());     # sort       
+                    
+                
+            
+
