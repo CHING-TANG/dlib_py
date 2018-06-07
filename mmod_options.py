@@ -53,7 +53,10 @@ class mmod_options(object):
 
 
     class mmod_rect(object):
-
+        rect = None   # rectangle
+        detection_confidence = 0  # double
+        ignore = False  # bool
+        label = None  # std::string
 
 
 

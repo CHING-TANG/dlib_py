@@ -147,14 +147,15 @@ class ProposalLayer(caffe.Layer):
         pass
 
 
-import rectangle
+import rectangle as rectangle
 class intermediate_detection(object):
     def __init__(self, rect, detection_confidence, tensor_offset, tensor_channel):
-        rect;   # rectangle
-        detection_confidence = 0;   # double
-        tensor_offset = 0;    #size_t
-        tensor_channel = 0;   # long
+        rect = rectangle   # rectangle
+        detection_confidence = 0   # double
+        tensor_offset = 0    #size_t
+        tensor_channel = 0    # long
 
+output_label_type = []     # list, save mmod_rect
 
 def to_label():
     pass
@@ -175,14 +176,20 @@ def compute_loss_value_and_gradient():
 
 
 
-def tensor_to_dets():
+def tensor_to_dets(input_tensor, output_tensor, i, dets_accum, adjust_threshold, net):
     # scan the final layer and output the positive scoring locations
+# const tensor& input_tensor,
+# const tensor& output_tensor,
+# long i,
+# std::vector<intermediate_detection>& dets_accum,
+# double adjust_threshold,
+# const net_type& net 
 
-    # const tensor& input_tensor,
-    # const tensor& output_tensor,
-    # i     # long
+
+    assert net.sample_expansion_factor() == 1,net.sample_expansion_factor()   ### 
+    assert output_tensor.k() == (long)options.detector_windows.size()   ###
+
     # out_data = output_tensor.host() + output_tensor.k()*output_tensor.nr()*output_tensor.nc()*i;
-    # adjust_threshold = 
 
     for k in range(output_tensor.k()):
         for r in range(output_tensor.nr()):
@@ -199,5 +206,20 @@ def tensor_to_dets():
     # std::sort(dets_accum.rbegin(), dets_accum.rend());     # sort       
                     
                 
-            
+
+
+def overlaps_any_box_nms(rects, rect):   #  bool
+# const std::vector<T>& rects,
+# const rectangle& rect
+    for r in rects:
+    # (auto&& r : rects)
+        if options.overlaps_nms(r.rect, rect):
+            return True
+    return False
+
+
+
+
+
+
 
