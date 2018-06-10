@@ -1,3 +1,5 @@
+import math
+
 class rectangle(object):
     # WHAT THIS OBJECT REPRESENTS
     # This object represents a rectangular region inside a Cartesian 
@@ -18,6 +20,18 @@ class rectangle(object):
         self.b = b
     # r > l && b > t
     
+    def left(self):
+        return self.l
+
+    def top(self):
+        return self.t
+
+    def right(self):
+        return self.r
+
+    def bottom(self):
+        return self.b
+
     def width(self):
         if (self.is_empty()):
             return 0
@@ -59,3 +73,61 @@ class rectangle(object):
             max(self.r, rhs.r),
             max(self.b, rhs.b)
             )
+
+
+
+def move_rect (rect, p)   # const rectangle
+# const rectangle& rect
+# const point& p
+    return rectangle(p.x(), p.y(), p.x()+rect.width()-1, p.y()+rect.height()-1);
+
+
+def move_rect (rect, x, y)   # const rectangle
+# const rectangle& rect
+# long x,
+# long y 
+    return rectangle(x, y, x+rect.width()-1, y+rect.height()-1);
+
+
+def set_rect_area(rect, area):  #  inline rectangle
+# const rectangle& rect,
+# unsigned long area  
+    assert area > 0
+
+    if (rect.area() == 0):
+        # In this case we will make the output rectangle a square with the requested area.
+        scale = round(math.sqrt(area))  # unsigned long 
+        return centered_rect(rect, scale, scale)
+    else:
+        scale = math.sqrt(area / rect.area())  # double 
+        return centered_rect(rect, round(rect.width()*scale), round(rect.height()*scale))
+
+def centered_rect (x, y, width, height):  #  inline const rectangle
+# long x,
+# long y,
+# unsigned long width,
+# unsigned long height
+    # rectangle result;
+    # result.set_left ( x - static_cast<long>(width) / 2 );
+    # result.set_top ( y - static_cast<long>(height) / 2 );
+    # result.set_right ( result.left() + width - 1 );
+    # result.set_bottom ( result.top() + height - 1 );
+    l =  x - width / 2 
+    t =  y - height / 2 
+    r =  l + width - 1 
+    b =  t + height - 1 
+    return rectangle(l, t, r, b)
+
+
+def centered_rect(rect, width, height): #  inline const rectangle
+# const rectangle& rect,
+# unsigned long width,
+# unsigned long height
+    return centered_rect((rect.left()+rect.right())/2,  (rect.top()+rect.bottom())/2, width, height)
+
+def centered_rect(p, width, height):  #  inline const rectangle 
+# const point& p,
+# unsigned long width,
+# unsigned long height
+    return centered_rect(p.x(), p.y(), width, height)
+

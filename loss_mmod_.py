@@ -161,16 +161,190 @@ def to_label():
     pass
 
 
-def compute_loss_value_and_gradient():
-    # const tensor& input_tensor,
-    # const_label_iterator truth, 
-    # SUBNET& sub
+def compute_loss_value_and_gradient():  #  deoble
+# const tensor& input_tensor,
+# const_label_iterator truth, 
+# SUBNET& sub
 
+    output_tensor = sub.get_output()    #  const tensor& 
+    grad = sub.get_gradient_input()     #  tensor& 
+    
+    assert input_tensor.num_samples() != 0
+    assert sub.sample_expansion_factor() == 1
+    assert input_tensor.num_samples() == grad.num_samples()
+    assert input_tensor.num_samples() == output_tensor.num_samples()
+    assert output_tensor.k() == (long)options.detector_windows.size()
 
     det_thresh_speed_adjust = 0  # dobule
 
-    # scale = 1.0/output_tensor.size();   # dobule
-    loss = 0;   # dobule
+# we will scale the loss so that it doesn't get really huge
+    scale = 1.0 / output_tensor.size()   # dobule
+    loss = 0   # dobule
+
+    g = grad.host_write_only()      # float* 
+    for i in range(grad.size()):
+        g[i] = 0
+
+    out_data = output_tensor.host()     # const float* 
+
+    std::vector<size_t> truth_idxs;  
+    truth_idxs.reserve(truth->size());
+    std::vector<intermediate_detection> dets;
+
+    for i in output_tensor.num_samples():   # long
+
+        tensor_to_dets(input_tensor, output_tensor, i, dets, -options.loss_per_false_alarm + det_thresh_speed_adjust, sub);
+
+        max_num_dets = 50 + truth->size()*5     # const unsigned long 
+        # Prevent calls to tensor_to_dets() from running for a really long time
+        # due to the production of an obscene number of detections.
+        max_num_initial_dets = max_num_dets*100     # const unsigned long 
+        if (dets.size() >= max_num_initial_dets):
+            det_thresh_speed_adjust = std::max(det_thresh_speed_adjust,dets[max_num_initial_dets].detection_confidence + options.loss_per_false_alarm)
+
+        # The loss will measure the number of incorrect detections.  A detection is
+        # incorrect if it doesn't hit a truth rectangle or if it is a duplicate detection
+        # on a truth rectangle.
+        loss += truth->size()*options.loss_per_missed_target;
+        for x in *truth:
+            if (~x.ignore):
+                size_t k;
+                point p;
+                if(image_rect_to_feat_coord(p, input_tensor, x, x.label, sub, k, options.assume_image_pyramid)):
+                    # Ignore boxes that can't be detected by the CNN.
+                    loss -= options.loss_per_missed_target;
+                    continue;
+                const size_t idx = (k*output_tensor.nr() + p.y())*output_tensor.nc() + p.x();
+                loss -= out_data[idx];
+                # compute gradient
+                g[idx] = -scale;
+                truth_idxs.push_back(idx);
+            else:
+                # This box was ignored so shouldn't have been counted in the loss.
+                loss -= options.loss_per_missed_target;
+                truth_idxs.push_back(0);
+
+        # Measure the loss augmented score for the detections which hit a truth rect.
+        std::vector<double> truth_score_hits(truth->size(), 0);
+
+        # keep track of which truth boxes we have hit so far.
+        std::vector<bool> hit_truth_table(truth->size(), false);
+
+        std::vector<intermediate_detection> final_dets;
+        // The point of this loop is to fill out the truth_score_hits array. 
+        for (unsigned long i = 0; i < dets.size() && final_dets.size() < max_num_dets; ++i)
+        {
+            if (overlaps_any_box_nms(final_dets, dets[i].rect))
+                continue;
+
+            const auto& det_label = options.detector_windows[dets[i].tensor_channel].label;
+
+            const std::pair<double,unsigned int> hittruth = find_best_match(*truth, dets[i].rect, det_label);
+
+            final_dets.push_back(dets[i].rect);
+
+            const double truth_match = hittruth.first;
+            // if hit truth rect
+            if (truth_match > options.truth_match_iou_threshold)
+            {
+                // if this is the first time we have seen a detect which hit (*truth)[hittruth.second]
+                const double score = dets[i].detection_confidence;
+                if (hit_truth_table[hittruth.second] == false)
+                {
+                    hit_truth_table[hittruth.second] = true;
+                    truth_score_hits[hittruth.second] += score;
+                }
+                else
+                {
+                    truth_score_hits[hittruth.second] += score + options.loss_per_false_alarm;
+                }
+            }
+        }
+
+        // Check if any of the truth boxes are unobtainable because the NMS is
+        // killing them.  If so, automatically set those unobtainable boxes to
+        // ignore and print a warning message to the user.
+        for (size_t i = 0; i < hit_truth_table.size(); ++i)
+        {
+            if (!hit_truth_table[i] && !(*truth)[i].ignore) 
+            {
+                // So we didn't hit this truth box.  Is that because there is
+                // another, different truth box, that overlaps it according to NMS?
+                const std::pair<double,unsigned int> hittruth = find_best_match(*truth, (*truth)[i], i);
+                if (hittruth.second == i || (*truth)[hittruth.second].ignore)
+                    continue;
+                rectangle best_matching_truth_box = (*truth)[hittruth.second];
+                if (options.overlaps_nms(best_matching_truth_box, (*truth)[i]))
+                {
+                    const size_t idx = truth_idxs[i];
+                    // We are ignoring this box so we shouldn't have counted it in the
+                    // loss in the first place.  So we subtract out the loss values we
+                    // added for it in the code above.
+                    loss -= options.loss_per_missed_target-out_data[idx];
+                    g[idx] = 0;
+                    std::cout << "Warning, ignoring object.  We encountered a truth rectangle located at " << (*truth)[i].rect;
+                    std::cout << " that is suppressed by non-max-suppression ";
+                    std::cout << "because it is overlapped by another truth rectangle located at " << best_matching_truth_box 
+                              << " (IoU:"<< box_intersection_over_union(best_matching_truth_box,(*truth)[i]) <<", Percent covered:" 
+                              << box_percent_covered(best_matching_truth_box,(*truth)[i]) << ")." << std::endl;
+                }
+            }
+        }
+
+        hit_truth_table.assign(hit_truth_table.size(), false);
+        final_dets.clear();
+
+
+        // Now figure out which detections jointly maximize the loss and detection score sum.  We
+        // need to take into account the fact that allowing a true detection in the output, while 
+        // initially reducing the loss, may allow us to increase the loss later with many duplicate
+        // detections.
+        for (unsigned long i = 0; i < dets.size() && final_dets.size() < max_num_dets; ++i)
+        {
+            if (overlaps_any_box_nms(final_dets, dets[i].rect))
+                continue;
+
+            const auto& det_label = options.detector_windows[dets[i].tensor_channel].label;
+
+            const std::pair<double,unsigned int> hittruth = find_best_match(*truth, dets[i].rect, det_label);
+
+            const double truth_match = hittruth.first;
+            if (truth_match > options.truth_match_iou_threshold)
+            {
+                if (truth_score_hits[hittruth.second] > options.loss_per_missed_target)
+                {
+                    if (!hit_truth_table[hittruth.second])
+                    {
+                        hit_truth_table[hittruth.second] = true;
+                        final_dets.push_back(dets[i]);
+                        loss -= options.loss_per_missed_target;
+                    }
+                    else
+                    {
+                        final_dets.push_back(dets[i]);
+                        loss += options.loss_per_false_alarm;
+                    }
+                }
+            }
+            else if (!overlaps_ignore_box(*truth, dets[i].rect))
+            {
+                // didn't hit anything
+                final_dets.push_back(dets[i]);
+                loss += options.loss_per_false_alarm;
+            }
+        }
+
+        for (auto&& x : final_dets)
+        {
+            loss += out_data[x.tensor_offset];
+            g[x.tensor_offset] += scale;
+        }
+
+        ++truth;
+        g        += output_tensor.k()*output_tensor.nr()*output_tensor.nc();
+        out_data += output_tensor.k()*output_tensor.nr()*output_tensor.nc();
+    # END for (long i = 0; i < output_tensor.num_samples(); ++i)
+
 
 
 
@@ -195,13 +369,13 @@ def tensor_to_dets(input_tensor, output_tensor, i, dets_accum, adjust_threshold,
         for r in range(output_tensor.nr()):
             for c in range(output_tensor.nc()):
             
-                score = out_data[(k*output_tensor.nr() + r)*output_tensor.nc() + c];
+                score = out_data[(k*output_tensor.nr() + r)*output_tensor.nc() + c]
                 if (score > adjust_threshold):
-                    dpoint p = output_tensor_to_input_tensor(net, point(c,r));
-                    drectangle rect = centered_drect(p, options.detector_windows[k].width, options.detector_windows[k].height);
-                    rect = input_layer(net).tensor_space_to_image_space(input_tensor,rect);
+                    p = output_tensor_to_input_tensor(net, point(c,r))  # dpoint 
+                    rect = centered_drect(p, options.detector_windows[k].width, options.detector_windows[k].height)  # drectangle 
+                    rect = input_layer(net).tensor_space_to_image_space(input_tensor,rect)
 
-                    dets_accum.push_back(intermediate_detection(rect, score, (k*output_tensor.nr() + r)*output_tensor.nc() + c, k));
+                    dets_accum.append(intermediate_detection(rect, score, (k*output_tensor.nr() + r)*output_tensor.nc() + c, k))
     
     # std::sort(dets_accum.rbegin(), dets_accum.rend());     # sort       
                     
@@ -216,10 +390,6 @@ def overlaps_any_box_nms(rects, rect):   #  bool
         if options.overlaps_nms(r.rect, rect):
             return True
     return False
-
-
-
-
 
 
 
